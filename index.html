@@ -1,30 +1,65 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gesture Recognizer</title>
-    <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="main.css">
+    <title>Конференция</title>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
 </head>
 <body>
-<h1>Распознавание жестов</h1>
+<h2>Конференция</h2>
+<div id="screens"></div>
 
-<section id="demos" class="invisible">
-    <div id="liveView" class="videoView">
-        <button id="webcamButton" class="mdc-button mdc-button--raised">
-            <span class="mdc-button__ripple"></span>
-            <span class="mdc-button__label">Включить камеру</span>
-        </button>
-        <div style="position: relative;">
-            <video id="webcam" autoplay playsinline></video>
-            <canvas class="output_canvas" id="output_canvas" width="1280" height="720" style="position: absolute; left: 0px; top: 0px;"></canvas>
-            <p id='gesture_output' class="output"></p>
-        </div>
-    </div>
-</section>
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyAJcqEr9zpqSdbeWVi60t_XhFsa2FToV_E",
+        authDomain: "confa-aeaed.firebaseapp.com",
+        databaseURL: "https://confa-aeaed-default-rtdb.firebaseio.com/",
+        projectId: "confa-aeaed",
+        storageBucket: "confa-aeaed.appspot.com",
+        messagingSenderId: "52860972084",
+        appId: "1:52860972084:web:3506a40ee55aba8beaae61"
+    };
 
-<script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
-<script type="module" src="main.js"></script>
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const userId = Math.random().toString(36).substring(2, 15);
+    const userRef = db.ref("screens/" + userId);
+    userRef.onDisconnect().remove(); // Удаление при отключении
+    window.addEventListener("beforeunload", () => userRef.remove()); // Удаление при закрытии вкладки
+
+    const screensContainer = document.getElementById("screens");
+
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+        const video = document.createElement("video");
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.style.display = "none";
+        document.body.appendChild(video);
+
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+
+        setInterval(() => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
+            userRef.set(dataUrl);
+        }, 100);
+    });
+
+    db.ref("screens").on("value", snapshot => {
+        screensContainer.innerHTML = "";
+        snapshot.forEach(child => {
+            const img = document.createElement("img");
+            img.src = child.val();
+            img.style.width = "30%";
+            screensContainer.appendChild(img);
+        });
+    });
+</script>
 </body>
 </html>
