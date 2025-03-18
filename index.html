@@ -36,16 +36,31 @@
         } else if (data.type === "offer" && data.to === userId) {
             await handleOffer(data.offer, data.from);
         } else if (data.type === "answer" && data.to === userId) {
-            await peerConnections[data.from].setRemoteDescription(new RTCSessionDescription(data.answer));
+            await handleAnswer(data.answer, data.from);
         } else if (data.type === "candidate" && data.to === userId) {
-            await peerConnections[data.from].addIceCandidate(new RTCIceCandidate(data.candidate));
+            await handleCandidate(data.candidate, data.from);
         }
     };
 
     function createPeerConnection(remoteUserId, initiator = false) {
+        if (peerConnections[remoteUserId]) {
+            console.warn(`Соединение с ${remoteUserId} уже существует`);
+            return;
+        }
+
         const peerConnection = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
+        // Добавляем локальный поток всегда, а не только для инициатора!
+        const localStream = document.getElementById("localVideo").srcObject;
+        if (localStream) {
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+        } else {
+            console.warn("Локальный поток ещё не загружен!");
+        }
+
         peerConnection.ontrack = event => {
+            console.log(`🔥 Получен поток от ${remoteUserId}, треков: ${event.streams[0].getTracks().length}`);
+
             let video = document.getElementById(`video-${remoteUserId}`);
             if (!video) {
                 video = document.createElement("video");
@@ -54,7 +69,23 @@
                 video.playsInline = true;
                 remoteVideos.appendChild(video);
             }
+
             video.srcObject = event.streams[0];
+            setTimeout(() => {
+                video.play()
+                    .then(() => console.log("🎬 Видео воспроизводится!"))
+                    .catch(err => console.error("⚠️ Ошибка при play():", err));
+            }, 500);
+            console.log("📺 Проверяем видео:", video);
+            console.log("🎥 Видео srcObject:", video.srcObject);
+
+            setTimeout(() => {
+                if (video.readyState === 0) {
+                    console.error("🚨 Видео не загружается! Попробуйте вызвать play() вручную.");
+                    video.play().catch(err => console.error("Ошибка при play():", err));
+                }
+            }, 2000);
+            console.log("🎥 Видео элемент:", video, "Поток:", video.srcObject);
         };
 
         peerConnection.onicecandidate = event => {
@@ -66,19 +97,15 @@
         peerConnections[remoteUserId] = peerConnection;
 
         if (initiator) {
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                .then(stream => {
-                    stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
-                    return peerConnection.createOffer();
-                })
-                .then(offer => {
-                    return peerConnection.setLocalDescription(offer);
-                })
+            peerConnection.createOffer()
+                .then(offer => peerConnection.setLocalDescription(offer))
                 .then(() => {
                     ws.send(JSON.stringify({ type: "offer", offer: peerConnection.localDescription, to: remoteUserId, from: userId }));
-                });
+                })
+                .catch(error => console.error("Ошибка при создании предложения:", error));
         }
     }
+
 
     async function handleOffer(offer, from) {
         if (!peerConnections[from]) {
@@ -87,11 +114,47 @@
 
         const peerConnection = peerConnections[from];
 
+        console.log(`Setting remote description for offer from ${from}`);
         await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await peerConnection.createAnswer();
+        console.log(`Setting local description for answer to ${from}`);
         await peerConnection.setLocalDescription(answer);
 
         ws.send(JSON.stringify({ type: "answer", answer: answer, to: from, from: userId }));
+    }
+
+    async function handleAnswer(answer, from) {
+        const peerConnection = peerConnections[from];
+        if (!peerConnection) {
+            console.error(`Нет соединения для участника ${from}`);
+            return;
+        }
+
+        // Проверка состояния перед установкой ответа
+        if (peerConnection.signalingState !== "have-remote-offer") {
+            console.warn(`Игнорируем answer от ${from}, так как signalingState уже ${peerConnection.signalingState}`);
+            return;
+        }
+
+        console.log(`Установка удаленного описания для ответа от ${from}`);
+        try {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+            console.log("Удаленное описание успешно установлено.");
+        } catch (error) {
+            console.error("Ошибка при установке удаленного описания:", error);
+        }
+    }
+
+
+    async function handleCandidate(candidate, from) {
+        const peerConnection = peerConnections[from];
+        if (!peerConnection) {
+            console.error(`No peer connection found for ${from}`);
+            return;
+        }
+
+        console.log(`Adding ICE candidate from ${from}`);
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     }
 
 </script>
