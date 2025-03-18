@@ -1,65 +1,99 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Конференция</title>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+    <title>WebRTC Conference</title>
 </head>
 <body>
-<h2>Конференция</h2>
-<div id="screens"></div>
+<h2>Local Video</h2>
+<video id="localVideo" autoplay playsinline></video>
+<h2>Remote Videos</h2>
+<div id="remoteVideos"></div>
 
 <script>
-    const firebaseConfig = {
-        apiKey: "AIzaSyAJcqEr9zpqSdbeWVi60t_XhFsa2FToV_E",
-        authDomain: "confa-aeaed.firebaseapp.com",
-        databaseURL: "https://confa-aeaed-default-rtdb.firebaseio.com/",
-        projectId: "confa-aeaed",
-        storageBucket: "confa-aeaed.appspot.com",
-        messagingSenderId: "52860972084",
-        appId: "1:52860972084:web:3506a40ee55aba8beaae61"
+    const roomId = "test-room";
+    const userId = Math.random().toString(36).substr(2, 9);
+    const ws = new WebSocket(`wss://193.29.225.92/ws/${roomId}/${userId}`);
+
+    const peerConnections = {};
+    const remoteVideos = document.getElementById("remoteVideos");
+
+    // Получение локального видео и аудио
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(stream => {
+            document.getElementById("localVideo").srcObject = stream;
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: "join", userId }));
+            };
+        });
+
+    ws.onmessage = async event => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "new-user" && data.userId !== userId) {
+            createPeerConnection(data.userId, true);
+        } else if (data.type === "offer" && data.to === userId) {
+            await handleOffer(data.offer, data.from);
+        } else if (data.type === "answer" && data.to === userId) {
+            await peerConnections[data.from].setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.type === "candidate" && data.to === userId) {
+            await peerConnections[data.from].addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
     };
 
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
+    function createPeerConnection(remoteUserId, initiator = false) {
+        const peerConnection = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
-    const userId = Math.random().toString(36).substring(2, 15);
-    const userRef = db.ref("screens/" + userId);
-    userRef.onDisconnect().remove(); // Удаление при отключении
-    window.addEventListener("beforeunload", () => userRef.remove()); // Удаление при закрытии вкладки
+        peerConnection.ontrack = event => {
+            let video = document.getElementById(`video-${remoteUserId}`);
+            if (!video) {
+                video = document.createElement("video");
+                video.id = `video-${remoteUserId}`;
+                video.autoplay = true;
+                video.playsInline = true;
+                remoteVideos.appendChild(video);
+            }
+            video.srcObject = event.streams[0];
+        };
 
-    const screensContainer = document.getElementById("screens");
+        peerConnection.onicecandidate = event => {
+            if (event.candidate) {
+                ws.send(JSON.stringify({ type: "candidate", candidate: event.candidate, from: userId, to: remoteUserId }));
+            }
+        };
 
-    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-        const video = document.createElement("video");
-        video.srcObject = stream;
-        video.autoplay = true;
-        video.style.display = "none";
-        document.body.appendChild(video);
+        peerConnections[remoteUserId] = peerConnection;
 
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
+        if (initiator) {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                .then(stream => {
+                    stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+                    return peerConnection.createOffer();
+                })
+                .then(offer => {
+                    return peerConnection.setLocalDescription(offer);
+                })
+                .then(() => {
+                    ws.send(JSON.stringify({ type: "offer", offer: peerConnection.localDescription, to: remoteUserId, from: userId }));
+                });
+        }
+    }
 
-        setInterval(() => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
-            userRef.set(dataUrl);
-        }, 100);
-    });
+    async function handleOffer(offer, from) {
+        if (!peerConnections[from]) {
+            createPeerConnection(from, false);
+        }
 
-    db.ref("screens").on("value", snapshot => {
-        screensContainer.innerHTML = "";
-        snapshot.forEach(child => {
-            const img = document.createElement("img");
-            img.src = child.val();
-            img.style.width = "30%";
-            screensContainer.appendChild(img);
-        });
-    });
+        const peerConnection = peerConnections[from];
+
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        ws.send(JSON.stringify({ type: "answer", answer: answer, to: from, from: userId }));
+    }
+
 </script>
 </body>
 </html>
