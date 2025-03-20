@@ -14,7 +14,7 @@
 <script>
     const roomId = "test-room";
     const userId = Math.random().toString(36).substr(2, 9);
-    const ws = new WebSocket(`wss://82.202.137.205/ws/${roomId}/${userId}`);
+    const ws = new WebSocket(`wss://gorodami.ru/ws/${roomId}/${userId}`);
 
     const peerConnections = {};
     const remoteVideos = document.getElementById("remoteVideos");
@@ -52,7 +52,6 @@
 
         const peerConnection = new RTCPeerConnection({
             iceServers: [
-                // { urls: "stun:82.202.137.205:3478" },
                 {
                     urls: "turn:82.202.137.205:3478",
                     username: "admin",
