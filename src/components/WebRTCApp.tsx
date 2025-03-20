@@ -48,7 +48,7 @@ const WebRTCApp: React.FC = () => {
         const peerConnection = new RTCPeerConnection({
             iceServers: [
                 {
-                    urls: "turn:gorodamin.ru:3478",
+                    urls: "turn:82.202.137.205:3478",
                     username: "admin",
                     credential: "adminadmin",
                 },
