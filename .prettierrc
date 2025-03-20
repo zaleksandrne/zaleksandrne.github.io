@@ -1,0 +1,28 @@
+{
+  "semi": true,
+  "tabWidth": 2,
+  "printWidth": 100,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "jsxSingleQuote": false,
+  "bracketSpacing": true,
+  "importOrder": [
+    "<THIRD_PARTY_MODULES>",
+    "^@test/(.*)$",
+    "^@pages/(.*)$",
+    "^@components/(.*)$",
+    "^@hooks/(.*)$",
+    "^@server/(.*)$",
+    "^@utils/(.*)$",
+    "^@type/(.*)$",
+    "^@lib/(.*)$",
+    "^@store/(.*)$",
+    "^@assets/(.*)$",
+    "^@src/(.*)$",
+    "./custom.scss$",
+    ".+(?<!(c|le|sc)ss)$",
+    "^[./]"
+  ],
+  "importOrderSeparation": true,
+  "importOrderSortSpecifiers": true
+}

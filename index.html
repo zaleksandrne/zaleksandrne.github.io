@@ -109,11 +109,6 @@
 
         const peerConnection = peerConnections[from];
 
-        // if (peerConnection.signalingState !== "stable") {
-        //     console.warn(`⚠️ Пропускаем повторный offer от ${from}, так как signalingState = ${peerConnection.signalingState}`);
-        //     return;
-        // }
-
         await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
@@ -121,26 +116,6 @@
         ws.send(JSON.stringify({ type: "answer", answer: answer, to: from, from: userId }));
     }
 
-    // Метод для проверки всех соединений
-    function checkConnections() {
-        Object.entries(peerConnections).forEach(([id, pc]) => {
-            console.log(`=== Peer ${id} ===`);
-            pc.getStats(null).then(stats => {
-                stats.forEach(report => {
-                    if (report.type === "candidate-pair" && report.nominated) {
-                        console.log("💡 Используемая пара кандидатов:", report);
-                    }
-                    if (report.type === "local-candidate") {
-                        console.log("🟢 Локальный кандидат:", report);
-                    }
-                    if (report.type === "remote-candidate") {
-                        console.log("🔵 Удалённый кандидат:", report);
-                    }
-                });
-            });
-            console.log(`ICE State: ${pc.iceConnectionState}`);
-        });
-    }
 </script>
 </body>
 </html>
