@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { MicOff, Mic, Video, VideoOff } from "lucide-react";
 
 const roomId = "test-room";
 const userId = Math.random().toString(36).substr(2, 9);
@@ -8,9 +9,13 @@ const WebRTCApp: React.FC = () => {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const [remoteStreams, setRemoteStreams] = useState<{ [key: string]: MediaStream }>({});
     const peerConnections = useRef<{ [key: string]: RTCPeerConnection }>({});
+    const [isMuted, setIsMuted] = useState(false);
+    const [isVideoOff, setIsVideoOff] = useState(false);
+    let localStream: MediaStream;
 
     useEffect(() => {
         navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+            localStream = stream;
             if (localVideoRef.current) {
                 localVideoRef.current.srcObject = stream;
             }
@@ -34,7 +39,7 @@ const WebRTCApp: React.FC = () => {
             }
         };
 
-        return () => ws.close(); // Закрываем WebSocket при размонтировании
+        return () => ws.close();
     }, []);
 
     function createPeerConnection(remoteUserId: string, initiator = false) {
@@ -87,34 +92,50 @@ const WebRTCApp: React.FC = () => {
         ws.send(JSON.stringify({ type: "answer", answer, to: from, from: userId }));
     }
 
-    const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
+    const toggleMute = () => {
+        if (localStream) {
+            localStream.getAudioTracks().forEach((track) => (track.enabled = isMuted));
+            setIsMuted(!isMuted);
+        }
+    };
 
-    useEffect(() => {
-        Object.keys(remoteStreams).forEach((key) => {
-            if (videoRefs.current[key]) {
-                videoRefs.current[key]!.srcObject = remoteStreams[key];
-            }
-        });
-    }, [remoteStreams]);
+    const toggleVideo = () => {
+        if (localStream) {
+            localStream.getVideoTracks().forEach((track) => (track.enabled = isVideoOff));
+            setIsVideoOff(!isVideoOff);
+        }
+    };
 
     return (
-        <div>
-            <h2>Local Video</h2>
-            <video ref={localVideoRef} muted autoPlay playsInline />
-
-            <h2>Remote Videos</h2>
-            <div>
-                {Object.keys(remoteStreams).map((key) => (
-                    <video
-                        key={key}
-                        ref={(el) => {
-                            videoRefs.current[key] = el;
-                        }}
-                        autoPlay
-                        playsInline
-                    />
-                ))}
+        <div className="h-screen bg-black flex flex-wrap justify-center items-center gap-4 p-4">
+            <div className="relative">
+                <video
+                    ref={localVideoRef}
+                    muted
+                    autoPlay
+                    playsInline
+                    className="w-80 h-48 border-4 border-blue-500 rounded-lg shadow-lg"
+                />
+                <div className="absolute bottom-2 left-2 flex gap-2">
+                    <button onClick={toggleMute} className="p-2 bg-gray-800 text-white rounded-full shadow-md hover:bg-gray-700 transition">
+                        {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
+                    </button>
+                    <button onClick={toggleVideo} className="p-2 bg-gray-800 text-white rounded-full shadow-md hover:bg-gray-700 transition">
+                        {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
+                    </button>
+                </div>
             </div>
+            {Object.keys(remoteStreams).map((key) => (
+                <video
+                    key={key}
+                    ref={(el) => {
+                        if (el) el.srcObject = remoteStreams[key];
+                    }}
+                    autoPlay
+                    playsInline
+                    className="w-80 h-48 border-2 border-gray-700 rounded-lg shadow-md"
+                />
+            ))}
         </div>
     );
 };
