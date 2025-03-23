@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MicOff, Mic, Video, VideoOff } from 'lucide-react';
+import UserPanel from './userPanel/UserPanel';
 
 const roomId = 'test-room';
 const userId = Math.random().toString(36).substr(2, 9);
@@ -14,6 +14,8 @@ export const WebRTCApp = () => {
   const peerConnections = useRef<{ [key: string]: RTCPeerConnection }>({});
   const [isMuted, setIsMuted] = useState(false);
   let localStream: MediaStream;
+
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
 
   useEffect(() => {
     navigator.mediaDevices
@@ -33,10 +35,20 @@ export const WebRTCApp = () => {
       console.log('🔵 WebSocket message:', data);
 
       if (data.type === 'new-user' && data.userId !== userId) {
-        // timeout to fix setRemoteDescriptions
         setTimeout(() => {
           createPeerConnection(data.userId, true);
         }, 600);
+      } else if (data.type === 'video-toggle') {
+        const pc = peerConnections.current[data.userId];
+        if (pc) {
+          setRemoteStreams((prev) => {
+            const newStreams = { ...prev };
+            newStreams[data.userId]?.getVideoTracks().forEach((track) => {
+              track.enabled = data.videoEnabled;
+            });
+            return newStreams;
+          });
+        }
       } else if (data.type === 'offer' && data.to === userId) {
         await handleOffer(data.offer, data.from);
       } else if (data.type === 'answer' && data.to === userId) {
@@ -50,12 +62,10 @@ export const WebRTCApp = () => {
         }
       } else if (data.type === 'candidate' && data.to === userId) {
         await delay(500);
-
         await peerConnections.current[data.from]?.addIceCandidate(
           new RTCIceCandidate(data.candidate),
         );
       } else if (data.type === 'user-disconnected' && data.userId !== userId) {
-        // Удаляем видео-поток удалившегося пользователя
         setRemoteStreams((prev) => {
           const newStreams = { ...prev };
           delete newStreams[data.userId];
@@ -140,79 +150,73 @@ export const WebRTCApp = () => {
       localStream.getAudioTracks().forEach((track) => (track.enabled = isMuted));
       setIsMuted(!isMuted);
 
-      // Отправляем сообщение о изменении состояния звука
       ws.send(
         JSON.stringify({
           type: 'mute-toggle',
           userId,
-          isMuted: !isMuted, // Передаем новое состояние
+          isMuted: !isMuted,
         }),
       );
     }
   };
 
-  const toggleVideo = () => {
-    const state = localStorage.getItem('videoState');
+  const toggleVideo = async () => {
+    const newState = !isVideoEnabled; // Инвертируем состояние
+    setIsVideoEnabled(newState); // Обновляем состояние кнопки
 
-    // Если видео выключено, включаем его
-    if (state === 'false') {
-      localStorage.setItem('videoState', 'true');
-    } else {
-      // Если видео включено, выключаем его
-      localStorage.setItem('videoState', 'false');
-    }
+    console.log('newState.toString()', newState.toString());
 
-    // Отправляем сообщение о переключении видео
-    ws.send(JSON.stringify({ type: 'user-disconnected', userId }));
-    ws.close();
+    localStorage.setItem('videoState', newState.toString());
 
-    // Обновляем страницу после небольшого таймаута, чтобы все изменения вступили в силу
-    setTimeout(() => {
-      window.location.reload();
-    }, 1000);
+    ws.send(
+      JSON.stringify({
+        type: 'video-toggle',
+        userId,
+        videoEnabled: newState,
+      }),
+    );
   };
 
+  console.log('remoteStreams', remoteStreams);
+
   return (
-    <div className="h-screen bg-black flex flex-wrap justify-center items-center gap-4 p-4">
-      <div className="relative">
-        <p style={{ color: 'white' }}>ya</p>
-        <video
-          ref={localVideoRef}
-          muted
-          autoPlay
-          playsInline
-          className="w-80 h-48 border-4 border-blue-500 rounded-lg shadow-lg"
-        />
-        <div className="absolute bottom-2 left-2 flex gap-2">
-          <button
-            onClick={toggleMute}
-            className="p-2 bg-gray-800 text-white rounded-full shadow-md hover:bg-gray-700 transition"
-          >
-            {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
-          </button>
-          <button
-            onClick={toggleVideo}
-            className="p-2 bg-gray-800 text-white rounded-full shadow-md hover:bg-gray-700 transition"
-          >
-            {localStorage.getItem('videoState') === 'false' ? (
-              <VideoOff size={24} />
-            ) : (
-              <Video size={24} />
-            )}
-          </button>
+    <div className="h-screen bg-black flex flex-col justify-between p-4">
+      {/* Контейнер для видео */}
+      <div className="flex flex-wrap justify-center items-center gap-4 mb-4">
+        {/* Локальное видео */}
+        <div className="flex justify-center items-center mb-4 border-4 border-blue-500 rounded-lg shadow-lg">
+          <video
+            style={{ opacity: isVideoEnabled ? 1 : 0 }}
+            ref={localVideoRef}
+            muted
+            autoPlay
+            playsInline
+            className="w-80 h-48 "
+          />
         </div>
+
+        {/* Удаленные видео */}
+        {Object.keys(remoteStreams).map((key) => (
+          <div className="flex justify-center items-center mb-4">
+            <video
+              key={key}
+              ref={(el) => {
+                if (el) el.srcObject = remoteStreams[key];
+              }}
+              autoPlay
+              playsInline
+              className="w-80 h-48 border-2 border-gray-700 rounded-lg shadow-md"
+            />
+          </div>
+        ))}
       </div>
-      {Object.keys(remoteStreams).map((key) => (
-        <video
-          key={key}
-          ref={(el) => {
-            if (el) el.srcObject = remoteStreams[key];
-          }}
-          autoPlay
-          playsInline
-          className="w-80 h-48 border-2 border-gray-700 rounded-lg shadow-md"
-        />
-      ))}
+
+      <UserPanel
+        isVideoEnabled={isVideoEnabled}
+        isMuted={isMuted}
+        toggleMute={toggleMute}
+        toggleVideo={toggleVideo}
+      />
     </div>
   );
 };
