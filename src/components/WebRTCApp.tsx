@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import UserPanel from './userPanel/UserPanel';
+import UsernamePrompt from './usernamePrompt/UsernamePrompt';
 
 const roomId = 'test-room';
 const userId = Math.random().toString(36).substr(2, 9);
@@ -14,12 +15,12 @@ export const WebRTCApp = () => {
   const peerConnections = useRef<{ [key: string]: RTCPeerConnection }>({});
   const [isMuted, setIsMuted] = useState(false);
   let localStream: MediaStream;
-
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const username = localStorage.getItem('chatUsername');
 
   useEffect(() => {
     navigator.mediaDevices
-      .getUserMedia({ video: localStorage.getItem('videoState') !== 'false', audio: true })
+      .getUserMedia({ video: isVideoEnabled, audio: !isMuted })
       .then((stream) => {
         localStream = stream;
         if (localVideoRef.current) {
@@ -38,6 +39,17 @@ export const WebRTCApp = () => {
         setTimeout(() => {
           createPeerConnection(data.userId, true);
         }, 600);
+      } else if (data.type === 'mute-toggle') {
+        const pc = peerConnections.current[data.userId];
+        if (pc) {
+          setRemoteStreams((prev) => {
+            const newStreams = { ...prev };
+            newStreams[data.userId]?.getAudioTracks().forEach((track) => {
+              track.enabled = !data.isMuted;
+            });
+            return newStreams;
+          });
+        }
       } else if (data.type === 'video-toggle') {
         const pc = peerConnections.current[data.userId];
         if (pc) {
@@ -77,6 +89,10 @@ export const WebRTCApp = () => {
     return () => ws.close();
   }, []);
 
+  // if (!username) {
+  //   return <UsernamePrompt />;
+  // }
+
   function createPeerConnection(remoteUserId: string, initiator = false) {
     console.log(`🔧 Creating peerConnection for ${remoteUserId}`);
 
@@ -111,7 +127,7 @@ export const WebRTCApp = () => {
 
     if (initiator) {
       navigator.mediaDevices
-        .getUserMedia({ video: localStorage.getItem('videoState') !== 'false', audio: true })
+        .getUserMedia({ video: isVideoEnabled, audio: !isMuted })
         .then((stream) => {
           stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
           return peerConnection.createOffer();
@@ -145,28 +161,22 @@ export const WebRTCApp = () => {
     ws.send(JSON.stringify({ type: 'answer', answer, to: from, from: userId }));
   }
 
-  const toggleMute = () => {
-    if (localStream) {
-      localStream.getAudioTracks().forEach((track) => (track.enabled = isMuted));
-      setIsMuted(!isMuted);
+  const toggleMute = async () => {
+    const newState = !isMuted;
+    setIsMuted(newState);
 
-      ws.send(
-        JSON.stringify({
-          type: 'mute-toggle',
-          userId,
-          isMuted: !isMuted,
-        }),
-      );
-    }
+    ws.send(
+      JSON.stringify({
+        type: 'mute-toggle',
+        userId,
+        isMuted: newState,
+      }),
+    );
   };
 
   const toggleVideo = async () => {
-    const newState = !isVideoEnabled; // Инвертируем состояние
-    setIsVideoEnabled(newState); // Обновляем состояние кнопки
-
-    console.log('newState.toString()', newState.toString());
-
-    localStorage.setItem('videoState', newState.toString());
+    const newState = !isVideoEnabled;
+    setIsVideoEnabled(newState);
 
     ws.send(
       JSON.stringify({
@@ -177,35 +187,32 @@ export const WebRTCApp = () => {
     );
   };
 
-  console.log('remoteStreams', remoteStreams);
-
   return (
     <div className="h-screen bg-black flex flex-col justify-between p-4">
-      {/* Контейнер для видео */}
-      <div className="flex flex-wrap justify-center items-center gap-4 mb-4">
-        {/* Локальное видео */}
-        <div className="flex justify-center items-center mb-4 border-4 border-blue-500 rounded-lg shadow-lg">
+      <div className="flex flex-grow flex-wrap justify-center items-center gap-4 mb-4">
+        <div className="flex justify-center items-center border-4 border-blue-500 rounded-lg shadow-lg">
           <video
             style={{ opacity: isVideoEnabled ? 1 : 0 }}
             ref={localVideoRef}
             muted
             autoPlay
             playsInline
-            className="w-80 h-48 "
+            className="w-80 h-48"
           />
         </div>
 
-        {/* Удаленные видео */}
         {Object.keys(remoteStreams).map((key) => (
-          <div className="flex justify-center items-center mb-4">
+          <div
+            key={key}
+            className="flex justify-center items-center border-2 border-gray-700 rounded-lg shadow-md"
+          >
             <video
-              key={key}
               ref={(el) => {
                 if (el) el.srcObject = remoteStreams[key];
               }}
               autoPlay
               playsInline
-              className="w-80 h-48 border-2 border-gray-700 rounded-lg shadow-md"
+              className="w-80 h-48"
             />
           </div>
         ))}
